@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSC Manifest Converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+<style>
+/* Layout: a working form on the left (file, flight, defaults), a live manifest preview on the right; stacks on phones. */
+:root {
+  --bg: #f3f5f7;
+  --panel: #ffffff;
+  --ink: #14202b;
+  --muted: #5a6875;
+  --line: #d8dee4;
+  --accent: #0b5cad;      /* air-waybill blue */
+  --accent-ink: #ffffff;
+  --accent-soft: #e3eefa;
+  --ok: #1d7a46;
+  --warn: #9a5b00;
+  --warn-soft: #fff3dc;
+  --bad: #b3261e;
+  --bad-soft: #fde8e6;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151b; --panel: #172029; --ink: #e6edf3; --muted: #93a3b2; --line: #2a3641;
+    --accent: #5aa6f2; --accent-ink: #08131e; --accent-soft: #16304a;
+    --ok: #5cc98b; --warn: #f0b35a; --warn-soft: #3a2a10; --bad: #ff8a80; --bad-soft: #3d1a18;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151b; --panel: #172029; --ink: #e6edf3; --muted: #93a3b2; --line: #2a3641;
+  --accent: #5aa6f2; --accent-ink: #08131e; --accent-soft: #16304a;
+  --ok: #5cc98b; --warn: #f0b35a; --warn-soft: #3a2a10; --bad: #ff8a80; --bad-soft: #3d1a18;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+header.top {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px;
+  padding-block: 22px 18px; border-bottom: 2px solid var(--ink); margin-bottom: 20px;
+  max-width: 1440px; margin-inline: auto;
+}
+header.top h1 { font: 700 26px/1.1 var(--f-display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+header.top h1 span { color: var(--accent); }
+header.top p { margin: 0; color: var(--muted); font-size: 13px; }
+.wrap { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 960px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 16px; min-width: 0; }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0; }
+.card h2 { font: 600 15px/1.2 var(--f-display); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 4px; display: flex; gap: 10px; align-items: center; }
+.card h2 .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--panel); font: 600 12px var(--f-mono); }
+.card .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+.drop {
+  display: block;
+  border: 1.5px dashed var(--line); border-radius: 6px; padding: 22px 14px; text-align: center; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop strong { display: block; font-size: 14px; }
+.drop span { color: var(--muted); font-size: 12.5px; }
+.drop input { display: none; }
+.filename { margin-top: 10px; font: 12.5px var(--f-mono); color: var(--ok); word-break: break-all; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.grid2 .full { grid-column: 1 / -1; }
+@media (max-width: 420px) { .grid2 { grid-template-columns: 1fr; } }
+label.f { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); min-width: 0; }
+label.f .req { color: var(--bad); }
+label.f small { font-weight: 400; font-size: 11.5px; }
+input[type=text], input[type=date], select, textarea {
+  font: 13.5px var(--f-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 7px 9px; width: 100%; min-width: 0;
+}
+input.code { font-family: var(--f-mono); text-transform: uppercase; }
+input.code::placeholder { text-transform: none; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input.missing { border-color: var(--bad); background: var(--bad-soft); }
+details { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; }
+details summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+details[open] summary { margin-bottom: 10px; }
+.radio { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+.radio label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+button {
+  font: 600 13.5px var(--f-body); border-radius: 4px; padding: 9px 14px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
+@media (max-width: 560px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stats div { background: var(--panel); padding: 10px 12px; }
+.stats b { display: block; font: 600 22px/1.1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.stats span { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.issues { display: grid; gap: 6px; margin-bottom: 14px; }
+.issue { font-size: 12.5px; padding: 7px 10px; border-radius: 4px; border-left: 3px solid; }
+.issue.bad { background: var(--bad-soft); border-color: var(--bad); }
+.issue.warn { background: var(--warn-soft); border-color: var(--warn); }
+.issue.good { background: var(--accent-soft); border-color: var(--ok); }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
+.tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); }
+.tablewrap { overflow: auto; max-height: 62vh; border: 1px solid var(--line); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 5px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--panel); font: 600 11px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); z-index: 1; }
+td.num { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+td.mono { font-family: var(--f-mono); font-size: 12px; }
+tr.group td { background: var(--accent-soft); font-weight: 600; font-size: 12px; }
+td.flag { color: var(--bad); font-weight: 600; }
+pre.xml { margin: 0; padding: 12px; font: 12px/1.45 var(--f-mono); max-height: 62vh; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); white-space: pre; }
+.empty { color: var(--muted); padding: 40px 10px; text-align: center; border: 1px dashed var(--line); border-radius: 6px; }
+.map { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 12.5px; }
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--panel); padding: 10px 14px; border-radius: 4px; font-size: 13px; opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none; }
+.toast.show { opacity: 1; transform: none; }
+footer { max-width: 1440px; margin: 24px auto 0; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Shipping Solution <span>Manifest</span> Converter</h1>
+  <p>Excel package list → ASYCUDA World AWBOLDS degroupage XML · Jamaica Customs · runs entirely in your browser</p>
+</header>
+
+<div class="wrap">
+  <div class="col">
+    <section class="card">
+      <h2><span class="n">1</span>Package list</h2>
+      <p class="sub">Excel (.xlsx) or CSV export of the packages on this flight.</p>
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="file" accept=".xlsx,.csv">
+        <strong>Drop the Excel file here</strong>
+        <span>or click to choose · nothing is uploaded anywhere</span>
+      </label>
+      <div class="filename" id="filename" hidden></div>
+      <details id="mapBox">
+        <summary>Column matching</summary>
+        <div class="map" id="map"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">2</span>Master air waybill</h2>
+      <p class="sub">From the airline's MAWB. Must match the stored manifest exactly.</p>
+      <div class="grid2">
+        <label class="f"><span>Customs office code <span class="req">*</span></span>
+          <input type="text" class="code" id="office" maxlength="5" placeholder="e.g. JMKIN"></label>
+        <label class="f"><span>Flight number <span class="req">*</span></span>
+          <input type="text" class="code" id="voyage" maxlength="17" placeholder="e.g. AA1365"></label>
+        <label class="f"><span>Departure date <span class="req">*</span></span>
+          <input type="date" id="depDate"></label>
+        <label class="f"><span>MAWB number <span class="req">*</span></span>
+          <input type="text" class="code" id="mawb" maxlength="17" placeholder="e.g. 00112345675"></label>
+        <label class="f"><span>Loaded at (UN/LOCODE) <span class="req">*</span></span>
+          <input type="text" class="code" id="pol" maxlength="5" placeholder="USMIA"></label>
+        <label class="f"><span>Unloaded at (UN/LOCODE) <span class="req">*</span></span>
+          <input type="text" class="code" id="pod" maxlength="5" placeholder="JMKIN"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><span class="n">3</span>House bill defaults</h2>
+      <p class="sub">Saved on this computer, so you set them once.</p>
+      <div class="grid2">
+        <label class="f full">House bills
+          <div class="radio">
+            <label><input type="radio" name="mode" value="package" checked> One per package</label>
+            <label><input type="radio" name="mode" value="customer"> One per customer</label>
+          </div>
+        </label>
+        <label class="f"><span>Waybill type code <span class="req">*</span></span>
+          <input type="text" class="code" id="bolType" maxlength="3" placeholder="HWB"><small>Confirm with Customs</small></label>
+        <label class="f"><span>Package type code <span class="req">*</span></span>
+          <input type="text" class="code" id="pkgType" maxlength="2" placeholder="PK"><small>UN/ECE Rec 21 (PK = package)</small></label>
+        <label class="f">Freight paid
+          <select id="pc"><option value="PP">Prepaid (PP)</option><option value="CC">Collect (CC)</option></select></label>
+        <label class="f">Transport document use
+          <select id="nature"><option value="23">23 · Imports</option><option value="24">24 · In transit</option><option value="28">28 · Transhipment</option></select></label>
+        <label class="f full"><span>Exporter / shipper name <span class="req">*</span></span>
+          <input type="text" id="expName" placeholder="SHIPPING SOLUTION COURIER (MIAMI)"></label>
+        <label class="f full"><span>Exporter / shipper address <span class="req">*</span></span>
+          <input type="text" id="expAddr" placeholder="Miami warehouse street, city, FL ZIP, USA"></label>
+        <label class="f full"><span>Consignee address <span class="req">*</span></span>
+          <input type="text" id="conAddr" placeholder="C/O {Package Courier}, KINGSTON, JAMAICA">
+          <small>Your file has no addresses. Use {Package Courier}, {Customer} or {Account ID} as placeholders.</small></label>
+      </div>
+      <details>
+        <summary>Optional codes</summary>
+        <div class="grid2">
+          <label class="f">Carrier code<input type="text" class="code" id="carrier" maxlength="17"><small>Adds a transport block to each bill</small></label>
+          <label class="f">Shipping agent code<input type="text" class="code" id="agent" maxlength="17"></label>
+          <label class="f">Location code<input type="text" class="code" id="loc" maxlength="17"><small>Transit shed / bond</small></label>
+          <label class="f">Authorized company code<input type="text" class="code" id="auth" maxlength="17"><small>Who may split house bills</small></label>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2><span class="n">4</span>Review &amp; export</h2>
+      <p class="sub">Sorted by package courier A–Z, then customer A–Z, then weight heaviest first.</p>
+      <div class="stats">
+        <div><b id="sBills">0</b><span>House bills</span></div>
+        <div><b id="sPkgs">0</b><span>Packages</span></div>
+        <div><b id="sKg">0</b><span>Gross kg</span></div>
+        <div><b id="sCour">0</b><span>Package couriers</span></div>
+      </div>
+      <div class="issues" id="issues"></div>
+      <div class="btns" style="margin-bottom:14px">
+        <button class="primary" id="dlXml" disabled>Download XML</button>
+        <button id="dlXlsx" disabled>Download sorted Excel</button>
+        <button id="copyXml" disabled>Copy XML</button>
+      </div>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="table" id="tabTable">Sorted list</button>
+        <button role="tab" aria-selected="false" data-tab="xml" id="tabXml">XML preview</button>
+      </div>
+      <div id="paneTable"><div class="empty">Load a package list to see the sorted manifest.</div></div>
+      <div id="paneXml" hidden><pre class="xml" id="xmlOut"></pre></div>
+    </section>
+  </div>
+</div>
+
+<footer>
+  Format: ASYCUDA World Bill of Lading Degroupage Stream (Awbolds). In ASYCUDA, open Cargo Manifest → XML Integration → Degroupage, choose the file, press Validate, then Upload.
+  The airline must first authorize your TRN on the master waybill.
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ---------------- Tiny ZIP reader / writer (no libraries) ---------------- */
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream("deflate-raw");
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function unzip(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("This doesn't look like an .xlsx file. In Excel, use File → Save As → Excel Workbook (.xlsx).");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const files = {}, dec = new TextDecoder();
+  for (let n = 0; n < count; n++) {
+    const method = dv.getUint16(p + 10, true);
+    const csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const off = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+    files[name] = { method, csize, off };
+    p += 46 + nlen + elen + clen;
+  }
+  return {
+    names: Object.keys(files),
+    async text(name) {
+      const f = files[name]; if (!f) return null;
+      const ln = dv.getUint16(f.off + 26, true), le = dv.getUint16(f.off + 28, true);
+      const start = f.off + 30 + ln + le;
+      const raw = u8.subarray(start, start + f.csize);
+      const out = f.method === 0 ? raw : await inflateRaw(raw);
+      return dec.decode(out);
+    }
+  };
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStore(entries) { // entries: [{name, text}]
+  const enc = new TextEncoder(), parts = [], central = []; let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name), data = enc.encode(e.text), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true);
+    c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const csize = central.reduce((s, a) => s + a.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, csize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+/* ---------------- XLSX / CSV parsing ---------------- */
+const parseXml = s => new DOMParser().parseFromString(s, "application/xml");
+const byTag = (node, tag) => Array.from(node.getElementsByTagNameNS("*", tag));
+function colIndex(ref) { let n = 0; for (const ch of ref.replace(/\d+/g, "")) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; }
+async function readXlsx(buf) {
+  const z = await unzip(buf);
+  const shared = [];
+  const ss = await z.text("xl/sharedStrings.xml");
+  if (ss) for (const si of byTag(parseXml(ss), "si")) shared.push(byTag(si, "t").map(t => t.textContent).join(""));
+  let sheetPath = "xl/worksheets/sheet1.xml";
+  const wb = await z.text("xl/workbook.xml"), rels = await z.text("xl/_rels/workbook.xml.rels");
+  if (wb && rels) {
+    const first = byTag(parseXml(wb), "sheet")[0];
+    const rid = first && (first.getAttribute("r:id") || first.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"));
+    const rel = byTag(parseXml(rels), "Relationship").find(r => r.getAttribute("Id") === rid);
+    if (rel) { const t = rel.getAttribute("Target"); sheetPath = t.startsWith("/") ? t.slice(1) : "xl/" + t.replace(/^\.\//, ""); }
+  }
+  const sx = await z.text(sheetPath);
+  if (!sx) throw new Error("Couldn't find a worksheet in this file.");
+  const rows = [];
+  for (const r of byTag(parseXml(sx), "row")) {
+    const row = [];
+    for (const c of byTag(r, "c")) {
+      const idx = colIndex(c.getAttribute("r") || "A"), t = c.getAttribute("t");
+      const v = byTag(c, "v")[0];
+      let val = "";
+      if (t === "s") val = shared[+v.textContent] ?? "";
+      else if (t === "inlineStr") val = byTag(c, "t").map(x => x.textContent).join("");
+      else if (v) val = v.textContent;
+      row[idx] = val;
+    }
+    rows.push(Array.from(row, x => x ?? ""));
+  }
+  return rows;
+}
+function readCsv(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/* ---------------- Column mapping ---------------- */
+const FIELDS = [
+  { key: "tracking", label: "Tracking", alias: ["tracking", "tracking number", "tracking no"] },
+  { key: "pack", label: "Pack Code", alias: ["pack code", "package code", "hawb", "house waybill"] },
+  { key: "courier", label: "Courier", alias: ["courier", "carrier"] },
+  { key: "pcourier", label: "Package Courier", alias: ["package courier", "client courier", "company"] },
+  { key: "desc", label: "Description", alias: ["description", "goods description", "contents"] },
+  { key: "customer", label: "Customer", alias: ["customer", "customer name", "consignee", "name"] },
+  { key: "account", label: "Account ID", alias: ["account id", "account", "account no"] },
+  { key: "weight", label: "Weight", alias: ["weight", "weight (lbs)", "weight lbs", "gross weight"] },
+];
+let headers = [], dataRows = [], mapping = {};
+function autoMap() {
+  mapping = {};
+  const norm = h => String(h).trim().toLowerCase();
+  for (const f of FIELDS) {
+    const i = headers.findIndex(h => f.alias.includes(norm(h)));
+    mapping[f.key] = i;
+  }
+}
+function renderMap() {
+  const box = $("map"); box.innerHTML = "";
+  for (const f of FIELDS) {
+    const l = document.createElement("label"); l.textContent = f.label; l.htmlFor = "map_" + f.key;
+    const s = document.createElement("select"); s.id = "map_" + f.key;
+    s.innerHTML = `<option value="-1">— not in file —</option>` + headers.map((h, i) => `<option value="${i}">${esc(h || "Column " + (i + 1))}</option>`).join("");
+    s.value = mapping[f.key];
+    s.onchange = () => { mapping[f.key] = +s.value; rebuild(); };
+    box.append(l, s);
+  }
+}
+
+/* ---------------- Helpers ---------------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c]));
+const clean = s => String(s ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/\s+/g, " ").trim();
+const LB_TO_KG = 0.45359237;
+function parseWeight(v) {
+  const s = String(v ?? "").toLowerCase().replace(/,/g, "");
+  const m = s.match(/-?\d+(\.\d+)?/); if (!m) return null;
+  const n = parseFloat(m[0]);
+  if (/kg|kilo/.test(s)) return { lb: n / LB_TO_KG, kg: n };
+  return { lb: n, kg: n * LB_TO_KG };
+}
+const r2 = n => Math.round(n * 100) / 100;
+const fmt = n => r2(n).toFixed(2);
+const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+function fill(tpl, p) {
+  return tpl.replace(/\{(Package Courier|Customer|Account ID|Courier)\}/gi, (_, k) => {
+    k = k.toLowerCase();
+    return k === "package courier" ? p.pcourier : k === "customer" ? p.customer : k === "account id" ? p.account : p.courier;
+  });
+}
+
+/* ---------------- Settings (saved per computer) ---------------- */
+const SETTINGS = ["office", "pol", "pod", "bolType", "pkgType", "pc", "nature", "expName", "expAddr", "conAddr", "carrier", "agent", "loc", "auth"];
+const DEFAULTS = { pol: "USMIA", pod: "JMKIN", bolType: "HWB", pkgType: "PK", pc: "PP", nature: "23", conAddr: "C/O {Package Courier}, KINGSTON, JAMAICA" };
+function loadSettings() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("ssc-manifest-settings") || "{}"); } catch (e) {}
+  for (const k of SETTINGS) { const v = saved[k] ?? DEFAULTS[k]; if (v != null) $(k).value = v; }
+  const mode = saved.mode || "package";
+  document.querySelector(`input[name=mode][value=${mode}]`).checked = true;
+}
+function saveSettings() {
+  const o = {}; for (const k of SETTINGS) o[k] = $(k).value;
+  o.mode = document.querySelector("input[name=mode]:checked").value;
+  try { localStorage.setItem("ssc-manifest-settings", JSON.stringify(o)); } catch (e) {}
+}
+const val = id => clean($(id).value);
+const code = id => clean($(id).value).toUpperCase();
+
+/* ---------------- Build manifest ---------------- */
+let packages = [], bills = [], xmlText = "", blocking = [];
+function buildPackages() {
+  const g = (row, k) => mapping[k] >= 0 ? clean(row[mapping[k]]) : "";
+  packages = dataRows.map((row, i) => {
+    const w = parseWeight(g(row, "weight"));
+    return {
+      src: i + 2, tracking: g(row, "tracking"), pack: g(row, "pack"), courier: g(row, "courier"),
+      pcourier: g(row, "pcourier"), desc: g(row, "desc"), customer: g(row, "customer"), account: g(row, "account"),
+      weightRaw: g(row, "weight"), lb: w ? w.lb : null, kg: w ? w.kg : null,
+    };
+  }).filter(p => p.tracking || p.pack || p.customer);
+  packages.sort((a, b) =>
+    collator.compare(a.pcourier, b.pcourier) ||
+    collator.compare(a.customer, b.customer) ||
+    (b.kg ?? -1) - (a.kg ?? -1));
+}
+function buildBills() {
+  const mode = document.querySelector("input[name=mode]:checked").value;
+  if (mode === "package") {
+    bills = packages.map(p => ({ ref: p.pack || p.tracking, pkgs: [p] }));
+  } else {
+    const map = new Map();
+    for (const p of packages) {
+      const key = p.pcourier.toLowerCase() + "|" + (p.account || p.customer).toLowerCase();
+      if (!map.has(key)) map.set(key, { ref: p.pack || p.tracking, pkgs: [] });
+      map.get(key).pkgs.push(p);
+    }
+    bills = [...map.values()];
+  }
+  bills.forEach((b, i) => {
+    const f = b.pkgs[0];
+    b.line = i + 1; b.pcourier = f.pcourier; b.customer = f.customer; b.account = f.account;
+    b.kg = b.pkgs.reduce((s, p) => s + (p.kg || 0), 0);
+    b.desc = [...new Set(b.pkgs.map(p => p.desc).filter(Boolean))].join("; ") || "PERSONAL EFFECTS";
+    b.marks = b.pkgs.map(p => p.tracking || p.pack).join(", ");
+  });
+}
+function tag(name, value, ind) { return `${ind}<${name}>${esc(value)}</${name}>\n`; }
+function buildXml() {
+  const I = n => "  ".repeat(n);
+  const s = {
+    office: code("office"), voyage: code("voyage"), date: $("depDate").value, mawb: code("mawb"),
+    pol: code("pol"), pod: code("pod"), bolType: code("bolType"), pkgType: code("pkgType"),
+    pc: $("pc").value, nature: $("nature").value, expName: val("expName"), expAddr: val("expAddr"), conAddr: val("conAddr"),
+    carrier: code("carrier"), agent: code("agent"), loc: code("loc"), auth: code("auth"),
+  };
+  let x = `<?xml version="1.0" encoding="UTF-8"?>\n<Awbolds>\n${I(1)}<Master_bol>\n`;
+  x += tag("Customs_office_code", s.office, I(2)) + tag("Voyage_number", s.voyage, I(2)) + tag("Date_of_departure", s.date, I(2)) + tag("Reference_number", s.mawb, I(2));
+  x += `${I(1)}</Master_bol>\n`;
+  for (const b of bills) {
+    x += `${I(1)}<Bol_segment>\n${I(2)}<Bol_id>\n`;
+    x += tag("Bol_reference", b.ref.slice(0, 17).toUpperCase(), I(3)) + tag("Line_number", b.line, I(3)) + tag("Bol_nature", s.nature, I(3)) + tag("Bol_type_code", s.bolType, I(3));
+    if (s.mawb) x += tag("Master_bol_ref_number", s.mawb, I(3));
+    x += `${I(2)}</Bol_id>\n`;
+    if (s.carrier || s.agent) {
+      x += `${I(2)}<Transport_information>\n`;
+      if (s.carrier) x += `${I(3)}<Carrier>\n` + tag("Carrier_code", s.carrier, I(4)) + `${I(3)}</Carrier>\n`;
+      if (s.agent) x += `${I(3)}<Shipping_Agent>\n` + tag("Shipping_Agent_code", s.agent, I(4)) + `${I(3)}</Shipping_Agent>\n`;
+      x += `${I(2)}</Transport_information>\n`;
+    }
+    x += `${I(2)}<Load_unload_place>\n` + tag("Place_of_loading_code", s.pol, I(3)) + tag("Place_of_unloading_code", s.pod, I(3)) + `${I(2)}</Load_unload_place>\n`;
+    x += `${I(2)}<Traders_segment>\n`;
+    x += `${I(3)}<Exporter>\n` + tag("Exporter_name", s.expName.slice(0, 75), I(4)) + tag("Exporter_address", s.expAddr.slice(0, 140), I(4)) + `${I(3)}</Exporter>\n`;
+    x += `${I(3)}<Notify>\n` + tag("Notify_name", b.pcourier.slice(0, 75), I(4)) + `${I(3)}</Notify>\n`;
+    x += `${I(3)}<Consignee>\n` + tag("Consignee_name", b.customer.slice(0, 75), I(4)) + tag("Consignee_address", fill(s.conAddr, b).slice(0, 140), I(4)) + `${I(3)}</Consignee>\n`;
+    x += `${I(2)}</Traders_segment>\n`;
+    x += `${I(2)}<Goods_segment>\n`;
+    x += tag("Number_of_packages", b.pkgs.length, I(3)) + tag("Package_type_code", s.pkgType, I(3)) + tag("Gross_mass", fmt(b.kg), I(3));
+    x += tag("Shipping_marks", b.marks.slice(0, 2000), I(3)) + tag("Goods_description", b.desc.slice(0, 2000), I(3));
+    x += tag("Num_of_ctn_for_this_bol", 0, I(3)) + tag("Num_of_vehicles_for_this_bol", 0, I(3));
+    x += tag("Information", `ACCT ${b.account} / ${b.pcourier}`.slice(0, 2000), I(3));
+    x += `${I(2)}</Goods_segment>\n`;
+    x += `${I(2)}<Value_segment>\n${I(3)}<Freight_segment>\n` + tag("PC_indicator", s.pc, I(4)) + `${I(3)}</Freight_segment>\n${I(2)}</Value_segment>\n`;
+    if (s.loc) x += `${I(2)}<Location>\n` + tag("Location_code", s.loc, I(3)) + `${I(2)}</Location>\n`;
+    if (s.auth) x += `${I(2)}<Authorize>\n` + tag("Company_code", s.auth, I(3)) + `${I(2)}</Authorize>\n`;
+    x += `${I(1)}</Bol_segment>\n`;
+  }
+  x += `</Awbolds>\n`;
+  return x;
+}
+
+/* ---------------- Validation ---------------- */
+function validate() {
+  const bad = [], warn = [];
+  const req = { office: "Customs office code", voyage: "Flight number", depDate: "Departure date", mawb: "MAWB number", pol: "Loaded at", pod: "Unloaded at", bolType: "Waybill type code", pkgType: "Package type code", expName: "Exporter name", expAddr: "Exporter address", conAddr: "Consignee address" };
+  const missing = [];
+  for (const [id, name] of Object.entries(req)) { const empty = !clean($(id).value); $(id).classList.toggle("missing", empty && packages.length > 0); if (empty) missing.push(name); }
+  if (missing.length) bad.push(`Fill in: ${missing.join(", ")}.`);
+  for (const id of ["pol", "pod"]) { const v = code(id); if (v && !/^[A-Z]{2}[A-Z2-9]{3}$/.test(v)) bad.push(`${req[id]} must be a 5-letter UN/LOCODE such as USMIA or JMKIN.`); }
+  if (mapping.weight < 0) bad.push("No weight column matched. Pick it under Column matching.");
+  if (mapping.customer < 0) bad.push("No customer column matched. Pick it under Column matching.");
+  const noW = packages.filter(p => p.kg == null || p.kg <= 0);
+  if (noW.length) bad.push(`${noW.length} package(s) have no readable weight (Excel rows ${noW.slice(0, 8).map(p => p.src).join(", ")}${noW.length > 8 ? "…" : ""}).`);
+  const noC = packages.filter(p => !p.customer);
+  if (noC.length) bad.push(`${noC.length} package(s) have no customer name (rows ${noC.slice(0, 8).map(p => p.src).join(", ")}).`);
+  const refs = new Map(); for (const b of bills) refs.set(b.ref.toUpperCase(), (refs.get(b.ref.toUpperCase()) || 0) + 1);
+  const dups = [...refs].filter(([, n]) => n > 1).map(([r]) => r);
+  if (dups.length) bad.push(`Duplicate house bill numbers: ${dups.slice(0, 6).join(", ")}${dups.length > 6 ? "…" : ""}.`);
+  const long = bills.filter(b => b.ref.length > 17);
+  if (long.length) warn.push(`${long.length} house bill number(s) are over 17 characters and will be cut to 17.`);
+  const longName = bills.filter(b => b.customer.length > 75);
+  if (longName.length) warn.push(`${longName.length} customer name(s) are over 75 characters and will be shortened.`);
+  const noDesc = packages.filter(p => !p.desc).length;
+  if (noDesc) warn.push(`${noDesc} package(s) have no description; "PERSONAL EFFECTS" is used.`);
+  blocking = bad;
+  return { bad, warn };
+}
+
+/* ---------------- Render ---------------- */
+function renderTable() {
+  const pane = $("paneTable");
+  if (!packages.length) { pane.innerHTML = `<div class="empty">Load a package list to see the sorted manifest.</div>`; return; }
+  let h = `<div class="tablewrap"><table><thead><tr><th>Line</th><th>House bill</th><th>Customer</th><th>Account</th><th>Description</th><th>Tracking</th><th>Courier</th><th style="text-align:right">lb</th><th style="text-align:right">kg</th></tr></thead><tbody>`;
+  let last = null;
+  for (const b of bills) {
+    if (b.pcourier !== last) {
+      const group = bills.filter(x => x.pcourier === b.pcourier);
+      const kg = group.reduce((s, x) => s + x.kg, 0), n = group.reduce((s, x) => s + x.pkgs.length, 0);
+      h += `<tr class="group"><td colspan="9">${esc(b.pcourier || "(no package courier)")} · ${n} pkg · ${fmt(kg)} kg</td></tr>`;
+      last = b.pcourier;
+    }
+    for (const [j, p] of b.pkgs.entries()) {
+      h += `<tr><td class="num">${j === 0 ? b.line : ""}</td><td class="mono">${j === 0 ? esc(b.ref) : ""}</td><td>${esc(p.customer)}</td><td class="mono">${esc(p.account)}</td><td>${esc(p.desc)}</td><td class="mono">${esc(p.tracking)}</td><td>${esc(p.courier)}</td>`;
+      h += p.kg == null ? `<td class="flag" colspan="2">${esc(p.weightRaw || "missing")}</td></tr>` : `<td class="num">${fmt(p.lb)}</td><td class="num">${fmt(p.kg)}</td></tr>`;
+    }
+  }
+  pane.innerHTML = h + `</tbody></table></div>`;
+}
+function rebuild() {
+  saveSettings();
+  buildPackages(); buildBills();
+  const { bad, warn } = validate();
+  xmlText = packages.length ? buildXml() : "";
+  $("sBills").textContent = bills.length;
+  $("sPkgs").textContent = packages.length;
+  $("sKg").textContent = fmt(packages.reduce((s, p) => s + (p.kg || 0), 0));
+  $("sCour").textContent = new Set(packages.map(p => p.pcourier.toLowerCase())).size;
+  const iss = $("issues"); iss.innerHTML = "";
+  if (packages.length) {
+    for (const m of bad) iss.insertAdjacentHTML("beforeend", `<div class="issue bad">${esc(m)}</div>`);
+    for (const m of warn) iss.insertAdjacentHTML("beforeend", `<div class="issue warn">${esc(m)}</div>`);
+    if (!bad.length) iss.insertAdjacentHTML("beforeend", `<div class="issue good">Ready. ${bills.length} house bills checked against the AWBOLDS required fields.</div>`);
+  }
+  $("dlXml").disabled = !packages.length || bad.length > 0;
+  $("copyXml").disabled = !packages.length || bad.length > 0;
+  $("dlXlsx").disabled = !packages.length;
+  $("xmlOut").textContent = xmlText.length > 400000 ? xmlText.slice(0, 400000) + "\n… (preview cut short; the download has everything)" : xmlText;
+  renderTable();
+}
+
+/* ---------------- Exports ---------------- */
+function download(blob, name) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function baseName() { const f = code("voyage") || "MANIFEST", d = $("depDate").value || new Date().toISOString().slice(0, 10); return `${f}_${d}`.replace(/[^A-Z0-9_-]/gi, "_"); }
+function sortedXlsx() {
+  const cols = ["Line", "House Bill", "Package Courier", "Customer", "Account ID", "Description", "Tracking", "Pack Code", "Courier", "Weight (lb)", "Weight (kg)"];
+  const cell = (r, c, v, num, style) => {
+    const ref = String.fromCharCode(65 + c) + r;
+    if (num && v !== "" && v != null) return `<c r="${ref}"${style ? ' s="1"' : ""}><v>${v}</v></c>`;
+    return `<c r="${ref}" t="inlineStr"${style ? ' s="1"' : ""}><is><t xml:space="preserve">${esc(v ?? "")}</t></is></c>`;
+  };
+  let rows = `<row r="1">${cols.map((h, i) => cell(1, i, h, false, true)).join("")}</row>`, r = 2;
+  for (const b of bills) for (const p of b.pkgs) {
+    const vals = [b.line, b.ref, p.pcourier, p.customer, p.account, p.desc, p.tracking, p.pack, p.courier, p.lb == null ? "" : r2(p.lb), p.kg == null ? "" : r2(p.kg)];
+    rows += `<row r="${r}">${vals.map((v, i) => cell(r, i, v, i === 0 || i >= 9, false)).join("")}</row>`; r++;
+  }
+  rows += `<row r="${r}">${cell(r, 8, "TOTAL", false, true)}${cell(r, 9, r2(packages.reduce((s, p) => s + (p.lb || 0), 0)), true, true)}${cell(r, 10, r2(packages.reduce((s, p) => s + (p.kg || 0), 0)), true, true)}</row>`;
+  const widths = [6, 14, 30, 26, 12, 30, 28, 13, 9, 11, 11].map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("");
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${widths}</cols><sheetData>${rows}</sheetData><autoFilter ref="A1:K${r - 1}"/></worksheet>`;
+  return zipStore([
+    { name: "[Content_Types].xml", text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { name: "_rels/.rels", text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: "xl/workbook.xml", text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sorted Manifest" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'Sorted Manifest'!$A$1:$K$${r - 1}</definedName></definedNames></workbook>` },
+    { name: "xl/_rels/workbook.xml.rels", text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: "xl/styles.xml", text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` },
+    { name: "xl/worksheets/sheet1.xml", text: sheet },
+  ]);
+}
+let toastT;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600); }
+
+/* ---------------- Wiring ---------------- */
+async function loadFile(file) {
+  try {
+    let rows;
+    if (/\.csv$/i.test(file.name)) rows = readCsv(await file.text());
+    else rows = await readXlsx(await file.arrayBuffer());
+    const hi = rows.findIndex(r => r.filter(c => clean(c)).length >= 3);
+    if (hi < 0) throw new Error("Couldn't find a header row in this file.");
+    headers = rows[hi].map(clean);
+    dataRows = rows.slice(hi + 1).filter(r => r.some(c => clean(c)));
+    autoMap(); renderMap();
+    $("mapBox").open = FIELDS.some(f => mapping[f.key] < 0);
+    $("filename").hidden = false;
+    $("filename").textContent = `${file.name} · ${dataRows.length} rows`;
+    rebuild();
+  } catch (e) {
+    $("filename").hidden = false; $("filename").style.color = "var(--bad)"; $("filename").textContent = e.message;
+    return;
+  }
+  $("filename").style.color = "";
+}
+$("file").addEventListener("change", e => e.target.files[0] && loadFile(e.target.files[0]));
+const drop = $("drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => e.dataTransfer.files[0] && loadFile(e.dataTransfer.files[0]));
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+document.querySelectorAll("input, select").forEach(el => { if (el.id !== "file" && !el.id.startsWith("map_")) el.addEventListener("input", () => packages.length || dataRows.length ? rebuild() : saveSettings()); });
+document.querySelectorAll("input[name=mode]").forEach(el => el.addEventListener("change", rebuild));
+$("dlXml").onclick = () => { download(new Blob([xmlText], { type: "application/xml" }), `AWBOLDS_${baseName()}.xml`); toast("XML downloaded"); };
+$("dlXlsx").onclick = () => { download(sortedXlsx(), `Sorted_Manifest_${baseName()}.xlsx`); toast("Sorted Excel downloaded"); };
+$("copyXml").onclick = async () => {
+  try { await navigator.clipboard.writeText(xmlText); toast("XML copied"); }
+  catch (e) { showTab("xml"); const r = document.createRange(); r.selectNodeContents($("xmlOut")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast("Selected. Press Ctrl+C to copy"); }
+};
+function showTab(t) {
+  $("tabTable").setAttribute("aria-selected", t === "table"); $("tabXml").setAttribute("aria-selected", t === "xml");
+  $("paneTable").hidden = t !== "table"; $("paneXml").hidden = t !== "xml";
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+if (!("DecompressionStream" in window)) $("filename").hidden = false, $("filename").textContent = "This browser is too old to read .xlsx files. Use a current Chrome, Edge, Firefox or Safari.";
+loadSettings();
+$("depDate").value = new Date().toISOString().slice(0, 10);
+</script>
+</body>
+</html>
