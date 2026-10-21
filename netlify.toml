@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+
+# The app lives in a single HTML file that isn't named index.html,
+# so serve it at the site root.
+[[redirects]]
+  from = "/"
+  to = "/Manifest-Converter-SSC.html"
+  status = 200
